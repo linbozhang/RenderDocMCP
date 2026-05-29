@@ -180,6 +180,42 @@ def get_action_timings(
 
 
 @mcp.tool
+def export_drawcall_analysis(output_dir: str) -> dict:
+    """
+    Export draw call analysis tables for the current capture.
+
+    Implemented by the RenderDoc MCP Bridge extension. Traverses all
+    Draw / DrawIndexed / Dispatch actions in call order and writes CSV files
+    with shader names, pass names, marker paths, and per-stage bindings.
+
+    Args:
+        output_dir: Directory to write CSV files into. The extension writes
+                    files directly on the RenderDoc side to avoid large JSON
+                    over IPC. Creates the directory if it does not exist.
+
+    Returns:
+        - count: Total number of draw calls and dispatches exported
+        - detail_path: Path to drawcall_analysis.csv (one row per action)
+        - summary_path: Path to drawcall_analysis_summary.csv (grouped by
+          shader + pass + marker path + action type)
+        - written: True when CSV files were written successfully
+
+    Detail CSV columns include: order, event_id, action_type, marker_path,
+    shader_name, pass_name, keywords, shader_name_full, vs/ps/hs/ds/gs/cs_shader,
+    num_indices, num_instances.
+
+    Requires RenderDoc to be running with the MCP Bridge extension loaded and
+    a capture already open.
+    """
+    old_timeout = bridge.timeout
+    try:
+        bridge.timeout = 180.0
+        return bridge.call("export_drawcall_analysis", {"output_dir": output_dir})
+    finally:
+        bridge.timeout = old_timeout
+
+
+@mcp.tool
 def get_shader_info(
     event_id: int,
     stage: Literal["vertex", "hull", "domain", "geometry", "pixel", "compute"],

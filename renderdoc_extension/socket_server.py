@@ -3,6 +3,7 @@ File-based IPC Server for RenderDoc MCP Bridge
 Uses file polling since RenderDoc's Python doesn't have socket/QtNetwork modules.
 """
 
+import csv
 import json
 import os
 import traceback
@@ -15,7 +16,9 @@ from PySide2.QtCore import QObject, QTimer
 IPC_DIR = os.path.join(tempfile.gettempdir(), "renderdoc_mcp")
 REQUEST_FILE = os.path.join(IPC_DIR, "request.json")
 RESPONSE_FILE = os.path.join(IPC_DIR, "response.json")
+RESPONSE_TMP_FILE = os.path.join(IPC_DIR, "response.json.tmp")
 LOCK_FILE = os.path.join(IPC_DIR, "lock")
+RESPONSE_LOCK_FILE = os.path.join(IPC_DIR, "response.lock")
 
 
 class MCPBridgeServer(QObject):
@@ -62,10 +65,40 @@ class MCPBridgeServer(QObject):
 
     def _cleanup_files(self):
         """Remove IPC files"""
-        for f in [REQUEST_FILE, RESPONSE_FILE, LOCK_FILE]:
+        for f in [
+            REQUEST_FILE,
+            RESPONSE_FILE,
+            RESPONSE_TMP_FILE,
+            LOCK_FILE,
+            RESPONSE_LOCK_FILE,
+        ]:
             try:
                 if os.path.exists(f):
                     os.remove(f)
+            except Exception:
+                pass
+
+    def _write_response(self, response):
+        """Atomically write response JSON to avoid partial reads."""
+        with open(RESPONSE_LOCK_FILE, "w") as lock_file:
+            lock_file.write("lock")
+
+        try:
+            with open(RESPONSE_TMP_FILE, "w", encoding="utf-8") as f:
+                json.dump(response, f, ensure_ascii=False)
+
+            if os.path.exists(RESPONSE_FILE):
+                os.remove(RESPONSE_FILE)
+            os.rename(RESPONSE_TMP_FILE, RESPONSE_FILE)
+        finally:
+            try:
+                if os.path.exists(RESPONSE_LOCK_FILE):
+                    os.remove(RESPONSE_LOCK_FILE)
+            except Exception:
+                pass
+            try:
+                if os.path.exists(RESPONSE_TMP_FILE):
+                    os.remove(RESPONSE_TMP_FILE)
             except Exception:
                 pass
 
@@ -101,8 +134,7 @@ class MCPBridgeServer(QObject):
                 }
 
             # Write response
-            with open(RESPONSE_FILE, "w", encoding="utf-8") as f:
-                json.dump(response, f)
+            self._write_response(response)
 
         except Exception as e:
             print("[MCP Bridge] Error processing request: %s" % str(e))

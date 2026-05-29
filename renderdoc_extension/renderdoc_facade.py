@@ -98,6 +98,10 @@ class RenderDocFacade:
             exclude_markers=exclude_markers,
         )
 
+    def export_drawcall_analysis(self, output_dir=None):
+        """Export draw call analysis table with shader and pass metadata"""
+        return self._action.export_drawcall_analysis(output_dir=output_dir)
+
     # ==================== Search Operations ====================
 
     def find_draws_by_shader(self, shader_name, stage=None):

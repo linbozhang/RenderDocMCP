@@ -16,6 +16,7 @@ IPC_DIR = os.path.join(tempfile.gettempdir(), "renderdoc_mcp")
 REQUEST_FILE = os.path.join(IPC_DIR, "request.json")
 RESPONSE_FILE = os.path.join(IPC_DIR, "response.json")
 LOCK_FILE = os.path.join(IPC_DIR, "lock")
+RESPONSE_LOCK_FILE = os.path.join(IPC_DIR, "response.lock")
 
 
 class RenderDocBridgeError(Exception):
@@ -67,22 +68,12 @@ class RenderDocBridge:
             # Wait for response
             start_time = time.time()
             while True:
-                if os.path.exists(RESPONSE_FILE):
-                    # Small delay to ensure file is fully written
-                    time.sleep(0.01)
-
-                    # Read response
-                    with open(RESPONSE_FILE, "r", encoding="utf-8") as f:
-                        response = json.load(f)
-
-                    # Clean up response file
-                    os.remove(RESPONSE_FILE)
-
-                    if "error" in response:
-                        error = response["error"]
-                        raise RenderDocBridgeError(f"[{error['code']}] {error['message']}")
-
-                    return response.get("result")
+                if os.path.exists(RESPONSE_FILE) and not os.path.exists(RESPONSE_LOCK_FILE):
+                    size = os.path.getsize(RESPONSE_FILE)
+                    if size > 0:
+                        time.sleep(0.05)
+                        if os.path.getsize(RESPONSE_FILE) == size:
+                            break
 
                 # Check timeout
                 if time.time() - start_time > self.timeout:
@@ -90,6 +81,19 @@ class RenderDocBridge:
 
                 # Poll interval
                 time.sleep(0.05)
+
+            # Read response
+            with open(RESPONSE_FILE, "r", encoding="utf-8") as f:
+                response = json.load(f)
+
+            # Clean up response file
+            os.remove(RESPONSE_FILE)
+
+            if "error" in response:
+                error = response["error"]
+                raise RenderDocBridgeError(f"[{error['code']}] {error['message']}")
+
+            return response.get("result")
 
         except RenderDocBridgeError:
             raise

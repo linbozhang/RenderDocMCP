@@ -21,6 +21,7 @@ class RequestHandler:
             "find_draws_by_resource": self._handle_find_draws_by_resource,
             "get_draw_call_details": self._handle_get_draw_call_details,
             "get_action_timings": self._handle_get_action_timings,
+            "export_drawcall_analysis": self._handle_export_drawcall_analysis,
             "get_shader_info": self._handle_get_shader_info,
             "get_buffer_contents": self._handle_get_buffer_contents,
             "get_texture_info": self._handle_get_texture_info,
@@ -125,6 +126,11 @@ class RequestHandler:
             marker_filter=marker_filter,
             exclude_markers=exclude_markers,
         )
+
+    def _handle_export_drawcall_analysis(self, params):
+        """Handle export_drawcall_analysis request"""
+        output_dir = params.get("output_dir")
+        return self.facade.export_drawcall_analysis(output_dir=output_dir)
 
     def _handle_get_shader_info(self, params):
         """Handle get_shader_info request"""

@@ -2,6 +2,10 @@
 Draw call / action operations service for RenderDoc.
 """
 
+import csv
+import os
+import re
+
 import renderdoc as rd
 
 from ..utils import Serializers, Helpers
@@ -313,3 +317,261 @@ class ActionService:
         if result["error"]:
             raise ValueError(result["error"])
         return result["data"]
+
+    @staticmethod
+    def _shader_resource_name(ctx, pipe, stage):
+        shader = pipe.GetShader(stage)
+        if shader == rd.ResourceId.Null():
+            return ""
+
+        try:
+            name = ctx.GetResourceName(shader)
+            if name:
+                return name
+        except Exception:
+            pass
+
+        try:
+            entry = pipe.GetShaderEntryPoint(stage)
+            if entry:
+                return entry
+        except Exception:
+            pass
+
+        return str(shader)
+
+    @staticmethod
+    def _parse_pass_name(shader_name):
+        if not shader_name:
+            return ""
+
+        match = re.search(r"\(([^)]+)\)", shader_name)
+        if match:
+            return match.group(1)
+
+        base = shader_name.split("[", 1)[0]
+        if "/" in base:
+            return base.rsplit("/", 1)[-1]
+        return base
+
+    @staticmethod
+    def _parse_keywords(shader_name):
+        if not shader_name:
+            return ""
+
+        match = re.search(r"\[(.*?)\]", shader_name)
+        if match:
+            return match.group(1)
+        return ""
+
+    @staticmethod
+    def _short_shader_name(shader_name):
+        if not shader_name:
+            return ""
+
+        base = shader_name.split("[", 1)[0]
+        if "(" in base:
+            base = base.split("(", 1)[0]
+        if "/" in base:
+            return base.rstrip("/").rsplit("/", 1)[-1]
+        return base
+
+    @staticmethod
+    def _action_type_name(flags):
+        if flags & rd.ActionFlags.Dispatch:
+            return "Dispatch"
+        if flags & rd.ActionFlags.Drawcall:
+            if flags & rd.ActionFlags.Indexed:
+                return "DrawIndexed"
+            return "Draw"
+        return "Unknown"
+
+    def export_drawcall_analysis(self, output_dir=None):
+        """Export all draw calls/dispatches with shader and pass metadata."""
+        if not self.ctx.IsCaptureLoaded():
+            raise ValueError("No capture loaded")
+
+        result = {"rows": [], "summary": [], "count": 0}
+
+        def callback(controller):
+            root_actions = controller.GetRootActions()
+            structured_file = controller.GetStructuredFile()
+            rows = []
+            order = [0]
+
+            stage_map = [
+                ("vs_shader", rd.ShaderStage.Vertex),
+                ("hs_shader", rd.ShaderStage.Hull),
+                ("ds_shader", rd.ShaderStage.Domain),
+                ("gs_shader", rd.ShaderStage.Geometry),
+                ("ps_shader", rd.ShaderStage.Pixel),
+                ("cs_shader", rd.ShaderStage.Compute),
+            ]
+
+            def collect(actions, markers=None):
+                if markers is None:
+                    markers = []
+
+                for action in actions:
+                    name = action.GetName(structured_file)
+                    flags = action.flags
+                    is_marker = bool(
+                        flags
+                        & (
+                            rd.ActionFlags.PushMarker
+                            | rd.ActionFlags.SetMarker
+                            | rd.ActionFlags.BeginPass
+                            | rd.ActionFlags.PassBoundary
+                        )
+                    )
+                    current_markers = markers + [name] if is_marker else markers
+
+                    if flags & (rd.ActionFlags.Drawcall | rd.ActionFlags.Dispatch):
+                        order[0] += 1
+                        controller.SetFrameEvent(action.eventId, False)
+                        pipe = controller.GetPipelineState()
+
+                        shaders = {}
+                        for key, stage in stage_map:
+                            shaders[key] = self._shader_resource_name(
+                                self.ctx, pipe, stage
+                            )
+
+                        if flags & rd.ActionFlags.Dispatch:
+                            primary_shader = shaders["cs_shader"]
+                        else:
+                            primary_shader = (
+                                shaders["ps_shader"]
+                                or shaders["vs_shader"]
+                                or shaders["gs_shader"]
+                            )
+
+                        rows.append(
+                            {
+                                "order": order[0],
+                                "event_id": action.eventId,
+                                "action_id": action.actionId,
+                                "action_type": self._action_type_name(flags),
+                                "action_name": name,
+                                "marker_path": " / ".join(current_markers),
+                                "shader_name": self._short_shader_name(primary_shader),
+                                "shader_name_full": primary_shader,
+                                "pass_name": self._parse_pass_name(primary_shader),
+                                "keywords": self._parse_keywords(primary_shader),
+                                "vs_shader": shaders["vs_shader"],
+                                "ps_shader": shaders["ps_shader"],
+                                "hs_shader": shaders["hs_shader"],
+                                "ds_shader": shaders["ds_shader"],
+                                "gs_shader": shaders["gs_shader"],
+                                "cs_shader": shaders["cs_shader"],
+                                "num_indices": action.numIndices,
+                                "num_instances": action.numInstances,
+                            }
+                        )
+
+                    if action.children:
+                        collect(action.children, current_markers)
+
+            collect(root_actions)
+
+            grouped = {}
+            for row in rows:
+                key = (
+                    row["shader_name_full"],
+                    row["pass_name"],
+                    row["marker_path"],
+                    row["action_type"],
+                )
+                if key not in grouped:
+                    grouped[key] = {
+                        "shader_name": row["shader_name"],
+                        "shader_name_full": row["shader_name_full"],
+                        "pass_name": row["pass_name"],
+                        "keywords": row["keywords"],
+                        "marker_path": row["marker_path"],
+                        "action_type": row["action_type"],
+                        "count": 0,
+                        "first_order": row["order"],
+                        "last_order": row["order"],
+                        "first_event_id": row["event_id"],
+                        "last_event_id": row["event_id"],
+                    }
+                entry = grouped[key]
+                entry["count"] += 1
+                entry["last_order"] = row["order"]
+                entry["last_event_id"] = row["event_id"]
+
+            summary = sorted(
+                grouped.values(),
+                key=lambda item: (item["first_order"], item["shader_name"], item["pass_name"]),
+            )
+
+            result["rows"] = rows
+            result["summary"] = summary
+            result["count"] = len(rows)
+
+        self._invoke(callback)
+
+        if output_dir:
+            return self._write_drawcall_csv(result, output_dir)
+
+        return result
+
+    @staticmethod
+    def _write_drawcall_csv(result, output_dir):
+        detail_columns = [
+            "order",
+            "event_id",
+            "action_id",
+            "action_type",
+            "action_name",
+            "marker_path",
+            "shader_name",
+            "pass_name",
+            "keywords",
+            "shader_name_full",
+            "vs_shader",
+            "ps_shader",
+            "hs_shader",
+            "ds_shader",
+            "gs_shader",
+            "cs_shader",
+            "num_indices",
+            "num_instances",
+        ]
+        summary_columns = [
+            "count",
+            "shader_name",
+            "pass_name",
+            "keywords",
+            "action_type",
+            "marker_path",
+            "first_order",
+            "last_order",
+            "first_event_id",
+            "last_event_id",
+            "shader_name_full",
+        ]
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        detail_path = os.path.join(output_dir, "drawcall_analysis.csv")
+        summary_path = os.path.join(output_dir, "drawcall_analysis_summary.csv")
+
+        with open(detail_path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=detail_columns, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(result["rows"])
+
+        with open(summary_path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=summary_columns, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(result["summary"])
+
+        return {
+            "count": result["count"],
+            "detail_path": detail_path,
+            "summary_path": summary_path,
+            "written": True,
+        }

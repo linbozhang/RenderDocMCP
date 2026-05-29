@@ -51,6 +51,7 @@ RenderDocMCP/
 | `find_draws_by_resource` | リソースIDでドローコールを逆引き検索 |
 | `get_draw_call_details` | 特定ドローコールの詳細 |
 | `get_action_timings` | アクションのGPU実行時間を取得 |
+| `export_drawcall_analysis` | Draw Call分析表をCSV出力（拡張機能で実装） |
 | `get_shader_info` | シェーダーソース/定数バッファ |
 | `get_buffer_contents` | バッファデータ取得（オフセット/長さ指定可） |
 | `get_texture_info` | テクスチャメタデータ |
@@ -112,6 +113,16 @@ get_action_timings(marker_filter="Camera.Render", exclude_markers=["GUI.Repaint"
 
 **注意**: GPUタイミングカウンターはハードウェア/ドライバーによっては利用できない場合があります。
 `available: false` が返された場合、そのキャプチャではタイミング情報を取得できません。
+
+### Draw Call 分析表エクスポート（拡張機能）
+
+```python
+export_drawcall_analysis(output_dir="D:\\captures\\analysis")
+# → {"count": 3084, "detail_path": "...\\drawcall_analysis.csv",
+#    "summary_path": "...\\drawcall_analysis_summary.csv", "written": true}
+```
+
+RenderDoc拡張側でCSVを直接書き込む。大きなキャプチャでは `output_dir` の指定が必須。
 
 ## 通信プロトコル
 
