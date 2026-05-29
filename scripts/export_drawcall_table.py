@@ -41,6 +41,7 @@ DETAIL_COLUMNS = [
 
 SUMMARY_COLUMNS = [
     "count",
+    "pass_marker",
     "shader_name",
     "pass_name",
     "keywords",
@@ -113,6 +114,45 @@ def action_type_name(flags):
     return "Unknown"
 
 
+def extract_pass_marker(marker_path):
+    """Extract render-pass marker (e.g. GpuBoidUpdatePass) from marker path."""
+    if not marker_path:
+        return ""
+
+    parts = [part.strip() for part in marker_path.split(" / ") if part.strip()]
+    if not parts:
+        return ""
+
+    scene_render = "SceneCamera.Render"
+    if scene_render in parts:
+        idx = parts.index(scene_render)
+        if idx + 1 < len(parts):
+            return parts[idx + 1]
+
+    for part in parts:
+        if "Pass" in part:
+            return part
+
+    if parts[0] == "UIR.DrawChain":
+        return "UIR.DrawChain"
+
+    draw_loops = {
+        "RenderLoop.Draw",
+        "RenderLoopNewBatcher.Draw",
+        "ShadowLoopNewBatcher.Draw",
+        "Shadows.Draw",
+        "GUITexture.Draw",
+    }
+    for part in reversed(parts):
+        if part in draw_loops:
+            continue
+        if part in ("UIR.DrawChain", "UIR.ImmediateRenderer"):
+            continue
+        return part
+
+    return ""
+
+
 def build_summary(rows):
     grouped = {}
     for row in rows:
@@ -129,6 +169,7 @@ def build_summary(rows):
                 "pass_name": row["pass_name"],
                 "keywords": row["keywords"],
                 "marker_path": row["marker_path"],
+                "pass_marker": extract_pass_marker(row["marker_path"]),
                 "action_type": row["action_type"],
                 "count": 0,
                 "first_order": row["order"],

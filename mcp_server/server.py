@@ -204,6 +204,9 @@ def export_drawcall_analysis(output_dir: str) -> dict:
     shader_name, pass_name, keywords, shader_name_full, vs/ps/hs/ds/gs/cs_shader,
     num_indices, num_instances.
 
+    Summary CSV includes pass_marker (render pass marker extracted from marker_path,
+    e.g. GpuBoidUpdatePass, MainLightShadowCasterPass, SkyLutPass_Native).
+
     Requires RenderDoc to be running with the MCP Bridge extension loaded and
     a capture already open.
     """

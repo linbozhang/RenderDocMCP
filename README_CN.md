@@ -291,6 +291,7 @@ export_drawcall_analysis(output_dir="H:/workspace/github/RenderDocMCP")
 | `marker_path` | Marker 层级路径（如 `SceneCamera.Render / DeferredShadingPass_Native`） |
 | `shader_name` | Shader 短名 |
 | `pass_name` | Pass 名（从 Shader 资源名括号内解析） |
+| `pass_marker` | 渲染 Pass Marker（从 `marker_path` 提取，如 `GpuBoidUpdatePass`、`MainLightShadowCasterPass`、`SkyLutPass_Native`） |
 | `keywords` | Shader 关键字变体（方括号内） |
 | `shader_name_full` | 完整 Shader 资源名 |
 | `vs_shader` / `ps_shader` / … / `cs_shader` | 各 Stage 绑定的 Shader 全名 |
