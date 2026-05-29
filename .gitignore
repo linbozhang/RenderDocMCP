@@ -8,3 +8,5 @@ dist/
 build/
 *.egg-info/
 PROGRESS.md
+drawcall_analysis.csv
+drawcall_analysis_summary.csv
